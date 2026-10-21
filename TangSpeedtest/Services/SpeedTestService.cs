@@ -19,6 +19,7 @@ internal sealed class SpeedTestProgressReport
     public double ProgressPercent { get; init; }
     public double InstantMegabytesPerSecond { get; init; }
     public double AverageMegabytesPerSecond { get; init; }
+    public bool IsWarmup { get; init; }
 }
 
 internal sealed class SpeedTestResult
@@ -33,15 +34,15 @@ internal sealed class SpeedTestResult
 internal sealed class SpeedTestService : IDisposable
 {
     private readonly HttpClient _httpClient;
-    private readonly TempCacheCleanupService _cacheCleanup;
 
-    public SpeedTestService(TempCacheCleanupService cacheCleanup)
+    public SpeedTestService()
     {
-        _cacheCleanup = cacheCleanup;
         var handler = new SocketsHttpHandler
         {
             PooledConnectionLifetime = TimeSpan.FromMinutes(2),
-            AutomaticDecompression = DecompressionMethods.All,
+            AutomaticDecompression = DecompressionMethods.None,
+            ConnectTimeout = TimeSpan.FromSeconds(5),
+            UseCookies = false,
         };
         _httpClient = new HttpClient(handler)
         {
@@ -59,174 +60,305 @@ internal sealed class SpeedTestService : IDisposable
         IProgress<SpeedTestProgressReport> progress,
         CancellationToken cancellationToken)
     {
-        using var timeoutCts = new CancellationTokenSource(SpeedTestConstants.MaxTestDuration);
-        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
+        var clock = Stopwatch.StartNew();
+        var meter = new TransferMeter();
+        meter.Report(TimeSpan.Zero, progress);
 
-        var stopwatch = Stopwatch.StartNew();
-        long totalBytes = 0;
-        string? tempPath = null;
+        var windowCts = new CancellationTokenSource();
+        var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, windowCts.Token);
+        var delayCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+
+        var reportTask = ReportLoopAsync(meter, clock, progress, linkedCts.Token);
+        var workers = new Task[SpeedTestConstants.ParallelConnections];
+        for (var i = 0; i < workers.Length; i++)
+        {
+            workers[i] = RunWorkerAsync(meter, clock, linkedCts.Token);
+        }
+
+        var allWorkers = Task.WhenAll(workers);
+        var delayTask = Task.Delay(SpeedTestConstants.TestWindow, delayCts.Token);
+        var snapshot = new MeasurementSnapshot(0, 0, TimeSpan.Zero, null);
+        var frozen = false;
 
         try
         {
-            tempPath = TempCacheCleanupService.CreateTempDownloadPath();
-            using var request = new HttpRequestMessage(HttpMethod.Get, SpeedTestConstants.DownloadUrl);
-            using var response = await _httpClient.SendAsync(
-                request,
-                HttpCompletionOption.ResponseHeadersRead,
-                linkedCts.Token).ConfigureAwait(false);
+            await Task.WhenAny(allWorkers, delayTask).ConfigureAwait(false);
+            snapshot = meter.Freeze(clock.Elapsed);
+            frozen = true;
 
-            if (!response.IsSuccessStatusCode)
+            if (cancellationToken.IsCancellationRequested || delayTask.IsCanceled)
             {
-                return Failed(totalBytes, stopwatch.Elapsed, $"服务器返回 {(int)response.StatusCode}。");
+                return Cancelled(snapshot);
             }
 
-            await using var networkStream = await response.Content.ReadAsStreamAsync(linkedCts.Token).ConfigureAwait(false);
-            await using var fileStream = new FileStream(
-                tempPath,
-                FileMode.Create,
-                FileAccess.Write,
-                FileShare.None,
-                SpeedTestConstants.ReadBufferSize,
-                FileOptions.SequentialScan | FileOptions.DeleteOnClose);
-
-            var buffer = new byte[SpeedTestConstants.ReadBufferSize];
-            var speedWindow = new SpeedSampleWindow();
-
-            while (true)
+            if (allWorkers.IsFaulted)
             {
-                int read;
-                try
-                {
-                    read = await networkStream.ReadAsync(buffer.AsMemory(0, buffer.Length), linkedCts.Token)
-                        .ConfigureAwait(false);
-                }
-                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-                {
-                    return Cancelled(totalBytes, stopwatch.Elapsed);
-                }
-                catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested)
-                {
-                    return TimedOut(totalBytes, stopwatch.Elapsed);
-                }
-
-                if (read == 0)
-                {
-                    break;
-                }
-
-                await fileStream.WriteAsync(buffer.AsMemory(0, read), linkedCts.Token).ConfigureAwait(false);
-                totalBytes += read;
-
-                var instant = speedWindow.AddSample(totalBytes, stopwatch.Elapsed);
-                var averageSoFar = ToMegabytesPerSecond(totalBytes, stopwatch.Elapsed);
-
-                var percent = Math.Min(100.0, totalBytes * 100.0 / SpeedTestConstants.ExpectedFileSizeBytes);
-                progress.Report(new SpeedTestProgressReport
-                {
-                    BytesDownloaded = totalBytes,
-                    ProgressPercent = percent,
-                    InstantMegabytesPerSecond = instant,
-                    AverageMegabytesPerSecond = averageSoFar,
-                });
+                var error = allWorkers.Exception?.InnerExceptions.FirstOrDefault();
+                return Failed(snapshot, error == null ? "测试失败，请稍后重试。" : DescribeFailure(error));
             }
 
-            stopwatch.Stop();
-            var average = ToMegabytesPerSecond(totalBytes, stopwatch.Elapsed);
-
-            if (totalBytes < SpeedTestConstants.ExpectedFileSizeBytes * 0.95)
+            if (!delayTask.IsCompletedSuccessfully)
             {
+                if (snapshot.Error != null)
+                {
+                    return Failed(snapshot, DescribeFailure(snapshot.Error));
+                }
+
+                return Failed(snapshot, "下载未完成，可能是网络中断或连接被重置。");
+            }
+
+            if (snapshot.MeasuredBytes < SpeedTestConstants.MinimumMeasuredBytes)
+            {
+                if (snapshot.Error != null)
+                {
+                    return Failed(snapshot, DescribeFailure(snapshot.Error));
+                }
+
+                if (snapshot.WarmupBytes + snapshot.MeasuredBytes <= 0)
+                {
+                    return Failed(snapshot, "连接超时，当前网络可能较差或信号较弱。");
+                }
+
                 return Failed(
-                    totalBytes,
-                    stopwatch.Elapsed,
-                    "下载未完成，可能是网络中断或连接被重置。",
-                    average);
+                    snapshot,
+                    $"测量时间内下载数据过少（{snapshot.MeasuredBytes / 1024.0:F1} KB），无法得到有效速度。");
             }
 
             return new SpeedTestResult
             {
                 Kind = SpeedTestCompletionKind.Succeeded,
-                BytesDownloaded = totalBytes,
-                Duration = stopwatch.Elapsed,
-                AverageMegabytesPerSecond = average,
+                BytesDownloaded = snapshot.MeasuredBytes,
+                Duration = snapshot.MeasureElapsed,
+                AverageMegabytesPerSecond = ToMegabytesPerSecond(snapshot.MeasuredBytes, snapshot.MeasureElapsed),
                 UserMessage = null,
             };
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            return Cancelled(totalBytes, stopwatch.Elapsed);
-        }
-        catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested)
-        {
-            return TimedOut(totalBytes, stopwatch.Elapsed);
-        }
-        catch (HttpRequestException ex) when (ex.InnerException is SocketException)
-        {
-            return Failed(totalBytes, stopwatch.Elapsed, MapNetworkError(ex));
-        }
-        catch (HttpRequestException ex)
-        {
-            return Failed(totalBytes, stopwatch.Elapsed, MapNetworkError(ex));
-        }
-        catch (SocketException ex)
-        {
-            return Failed(totalBytes, stopwatch.Elapsed, MapSocketError(ex));
-        }
-        catch (IOException)
-        {
-            return Failed(totalBytes, stopwatch.Elapsed, "网络读写失败，请检查连接后重试。");
+            if (!frozen)
+            {
+                snapshot = meter.Freeze(clock.Elapsed);
+            }
+
+            return Cancelled(snapshot);
         }
         catch (Exception)
         {
-            return Failed(totalBytes, stopwatch.Elapsed, "测试失败，请稍后重试。");
+            if (!frozen)
+            {
+                snapshot = meter.Freeze(clock.Elapsed);
+            }
+
+            return Failed(snapshot, "测试失败，请稍后重试。");
         }
         finally
         {
-            _cacheCleanup.TryDeleteFile(tempPath);
-            _cacheCleanup.CleanupStaleFiles();
+            var stopped = await ShutdownAsync(windowCts, delayCts, delayTask, allWorkers, reportTask)
+                .ConfigureAwait(false);
+            if (stopped)
+            {
+                windowCts.Dispose();
+                linkedCts.Dispose();
+                delayCts.Dispose();
+            }
         }
     }
 
-    private static SpeedTestResult Cancelled(long bytes, TimeSpan duration)
+    private async Task RunWorkerAsync(TransferMeter meter, Stopwatch clock, CancellationToken cancellationToken)
+    {
+        var buffer = new byte[SpeedTestConstants.ReadBufferSize];
+        var consecutiveFailures = 0;
+
+        while (clock.Elapsed < SpeedTestConstants.TestWindow
+            && !cancellationToken.IsCancellationRequested
+            && !meter.IsFrozen)
+        {
+            try
+            {
+                var reachedEnd = await DownloadOnceAsync(buffer, meter, clock, cancellationToken)
+                    .ConfigureAwait(false);
+                consecutiveFailures = 0;
+                if (!reachedEnd)
+                {
+                    return;
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+            catch (Exception ex) when (IsTransferError(ex))
+            {
+                consecutiveFailures++;
+                meter.RememberError(ex);
+                if (consecutiveFailures >= 3)
+                {
+                    return;
+                }
+
+                try
+                {
+                    await Task.Delay(TimeSpan.FromMilliseconds(200), cancellationToken).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    return;
+                }
+            }
+        }
+    }
+
+    private async Task<bool> DownloadOnceAsync(
+        byte[] buffer,
+        TransferMeter meter,
+        Stopwatch clock,
+        CancellationToken cancellationToken)
+    {
+        if (clock.Elapsed >= SpeedTestConstants.TestWindow
+            || cancellationToken.IsCancellationRequested
+            || meter.IsFrozen)
+        {
+            return false;
+        }
+
+        var url = $"{SpeedTestConstants.DownloadUrl}?r={Guid.NewGuid():N}";
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        using var response = await _httpClient.SendAsync(
+            request,
+            HttpCompletionOption.ResponseHeadersRead,
+            cancellationToken).ConfigureAwait(false);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new HttpRequestException(
+                $"服务器返回 {(int)response.StatusCode}。",
+                null,
+                response.StatusCode);
+        }
+
+        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+        var gotBytes = false;
+        while (true)
+        {
+            if (cancellationToken.IsCancellationRequested || meter.IsFrozen)
+            {
+                return false;
+            }
+
+            var read = await stream.ReadAsync(buffer.AsMemory(0, buffer.Length), cancellationToken)
+                .ConfigureAwait(false);
+            if (read == 0)
+            {
+                if (!gotBytes)
+                {
+                    throw new IOException("响应没有数据。");
+                }
+
+                return true;
+            }
+
+            gotBytes = true;
+            meter.Add(read, clock.Elapsed);
+        }
+    }
+
+    private static async Task ReportLoopAsync(
+        TransferMeter meter,
+        Stopwatch clock,
+        IProgress<SpeedTestProgressReport> progress,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(100));
+            while (await timer.WaitForNextTickAsync(cancellationToken).ConfigureAwait(false))
+            {
+                meter.Report(clock.Elapsed, progress);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+    }
+
+    private static async Task<bool> ShutdownAsync(
+        CancellationTokenSource windowCts,
+        CancellationTokenSource delayCts,
+        Task delayTask,
+        Task allWorkers,
+        Task reportTask)
+    {
+        try
+        {
+            windowCts.Cancel();
+            if (!delayTask.IsCompleted)
+            {
+                delayCts.Cancel();
+            }
+
+            try
+            {
+                await delayTask.ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+            }
+
+            var finished = await Task.WhenAny(allWorkers, Task.Delay(SpeedTestConstants.WorkerStopGrace))
+                .ConfigureAwait(false);
+            if (finished == allWorkers)
+            {
+                try
+                {
+                    await allWorkers.ConfigureAwait(false);
+                }
+                catch (Exception)
+                {
+                    // Worker failures are already reflected in the test result.
+                }
+            }
+
+            try
+            {
+                await reportTask.ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+            }
+
+            return finished == allWorkers;
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+    }
+
+    private static bool IsTransferError(Exception ex)
+    {
+        return ex is HttpRequestException or IOException or SocketException;
+    }
+
+    private static SpeedTestResult Cancelled(MeasurementSnapshot snapshot)
     {
         return new SpeedTestResult
         {
             Kind = SpeedTestCompletionKind.CancelledByUser,
-            BytesDownloaded = bytes,
-            Duration = duration,
-            AverageMegabytesPerSecond = ToMegabytesPerSecond(bytes, duration),
+            BytesDownloaded = snapshot.MeasuredBytes,
+            Duration = snapshot.MeasureElapsed,
+            AverageMegabytesPerSecond = ToMegabytesPerSecond(snapshot.MeasuredBytes, snapshot.MeasureElapsed),
             UserMessage = "已取消测试。",
         };
     }
 
-    private static SpeedTestResult TimedOut(long bytes, TimeSpan duration)
+    private static SpeedTestResult Failed(MeasurementSnapshot snapshot, string message)
     {
-        return new SpeedTestResult
-        {
-            Kind = SpeedTestCompletionKind.TimedOut,
-            BytesDownloaded = bytes,
-            Duration = duration,
-            AverageMegabytesPerSecond = ToMegabytesPerSecond(bytes, duration),
-            UserMessage = $"已超过最大测试时间（{SpeedTestConstants.MaxTestDuration.TotalSeconds:0} 秒），测试已停止。",
-        };
-    }
-
-    private static SpeedTestResult Failed(
-        long bytes,
-        TimeSpan duration,
-        string message,
-        double average = 0)
-    {
-        if (average <= 0)
-        {
-            average = ToMegabytesPerSecond(bytes, duration);
-        }
-
         return new SpeedTestResult
         {
             Kind = SpeedTestCompletionKind.Failed,
-            BytesDownloaded = bytes,
-            Duration = duration,
-            AverageMegabytesPerSecond = average,
+            BytesDownloaded = snapshot.MeasuredBytes,
+            Duration = snapshot.MeasureElapsed,
+            AverageMegabytesPerSecond = ToMegabytesPerSecond(snapshot.MeasuredBytes, snapshot.MeasureElapsed),
             UserMessage = message,
         };
     }
@@ -241,6 +373,27 @@ internal sealed class SpeedTestService : IDisposable
         return bytes / duration.TotalSeconds / (1024.0 * 1024.0);
     }
 
+    private static string DescribeFailure(Exception ex)
+    {
+        var socket = FindSocketException(ex);
+        if (socket != null)
+        {
+            return MapSocketError(socket);
+        }
+
+        if (ex is HttpRequestException httpEx)
+        {
+            return MapNetworkError(httpEx);
+        }
+
+        if (ex is IOException)
+        {
+            return "网络读写失败，请检查连接后重试。";
+        }
+
+        return "测试失败，请稍后重试。";
+    }
+
     private static string MapNetworkError(HttpRequestException ex)
     {
         if (ex.StatusCode == HttpStatusCode.ServiceUnavailable)
@@ -248,10 +401,15 @@ internal sealed class SpeedTestService : IDisposable
             return "服务暂时不可用，请稍后重试。";
         }
 
-        var inner = ex.InnerException;
-        if (inner is SocketException socketEx)
+        var socket = FindSocketException(ex);
+        if (socket != null)
         {
-            return MapSocketError(socketEx);
+            return MapSocketError(socket);
+        }
+
+        if (ex.StatusCode is HttpStatusCode status)
+        {
+            return $"服务器返回 {(int)status}。";
         }
 
         if (ex.Message.Contains("Name or service not known", StringComparison.OrdinalIgnoreCase)
@@ -277,22 +435,167 @@ internal sealed class SpeedTestService : IDisposable
         };
     }
 
+    private static SocketException? FindSocketException(Exception? ex)
+    {
+        while (ex != null)
+        {
+            if (ex is SocketException socketEx)
+            {
+                return socketEx;
+            }
+
+            ex = ex.InnerException;
+        }
+
+        return null;
+    }
+
     public void Dispose()
     {
         _httpClient.Dispose();
     }
 
+    private sealed class MeasurementSnapshot
+    {
+        public MeasurementSnapshot(long measuredBytes, long warmupBytes, TimeSpan measureElapsed, Exception? error)
+        {
+            MeasuredBytes = measuredBytes;
+            WarmupBytes = warmupBytes;
+            MeasureElapsed = measureElapsed;
+            Error = error;
+        }
+
+        public long MeasuredBytes { get; }
+        public long WarmupBytes { get; }
+        public TimeSpan MeasureElapsed { get; }
+        public Exception? Error { get; }
+    }
+
+    private sealed class TransferMeter
+    {
+        private readonly object _gate = new();
+        private readonly SpeedSampleWindow _window = new();
+        private long _warmupBytes;
+        private long _measuredBytes;
+        private Exception? _error;
+        private bool _frozen;
+
+        public bool IsFrozen
+        {
+            get
+            {
+                lock (_gate)
+                {
+                    return _frozen;
+                }
+            }
+        }
+
+        public void Add(int count, TimeSpan elapsed)
+        {
+            if (count <= 0)
+            {
+                return;
+            }
+
+            lock (_gate)
+            {
+                if (_frozen)
+                {
+                    return;
+                }
+
+                if (elapsed <= SpeedTestConstants.WarmupDuration)
+                {
+                    _warmupBytes += count;
+                }
+                else
+                {
+                    _measuredBytes += count;
+                }
+            }
+        }
+
+        public void RememberError(Exception ex)
+        {
+            lock (_gate)
+            {
+                _error ??= ex;
+            }
+        }
+
+        public MeasurementSnapshot Freeze(TimeSpan elapsed)
+        {
+            lock (_gate)
+            {
+                _frozen = true;
+                var measureElapsed = elapsed - SpeedTestConstants.WarmupDuration;
+                if (measureElapsed < TimeSpan.Zero)
+                {
+                    measureElapsed = TimeSpan.Zero;
+                }
+
+                return new MeasurementSnapshot(_measuredBytes, _warmupBytes, measureElapsed, _error);
+            }
+        }
+
+        public void Report(TimeSpan elapsed, IProgress<SpeedTestProgressReport> progress)
+        {
+            SpeedTestProgressReport report;
+            lock (_gate)
+            {
+                if (_frozen)
+                {
+                    return;
+                }
+
+                var isWarmup = elapsed < SpeedTestConstants.WarmupDuration;
+                long averageBytes;
+                TimeSpan averageDuration;
+                if (isWarmup)
+                {
+                    averageBytes = _warmupBytes;
+                    averageDuration = elapsed;
+                }
+                else
+                {
+                    averageBytes = _measuredBytes;
+                    averageDuration = elapsed - SpeedTestConstants.WarmupDuration;
+                }
+
+                var totalBytes = _warmupBytes + _measuredBytes;
+                var windowSeconds = SpeedTestConstants.TestWindow.TotalSeconds;
+                var percent = windowSeconds <= 0
+                    ? 0
+                    : Math.Min(100.0, elapsed.TotalSeconds / windowSeconds * 100.0);
+
+                report = new SpeedTestProgressReport
+                {
+                    BytesDownloaded = isWarmup ? _warmupBytes : _measuredBytes,
+                    ProgressPercent = percent,
+                    InstantMegabytesPerSecond = _window.AddSample(totalBytes, elapsed),
+                    AverageMegabytesPerSecond = ToMegabytesPerSecond(averageBytes, averageDuration),
+                    IsWarmup = isWarmup,
+                };
+            }
+
+            progress.Report(report);
+        }
+    }
+
     private sealed class SpeedSampleWindow
     {
         private long _lastBytes;
-        private TimeSpan _lastElapsed = TimeSpan.Zero;
+        private TimeSpan _lastElapsed;
+        private bool _hasSample;
 
         public double AddSample(long totalBytes, TimeSpan elapsed)
         {
-            if (_lastElapsed == TimeSpan.Zero)
+            if (!_hasSample)
             {
                 _lastBytes = totalBytes;
                 _lastElapsed = elapsed;
+                _hasSample = true;
                 return 0;
             }
 

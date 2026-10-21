@@ -25,7 +25,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         var cacheCleanup = new TempCacheCleanupService();
         cacheCleanup.CleanupStaleFiles();
         _historyStorage = new HistoryStorageService();
-        _speedTestService = new SpeedTestService(cacheCleanup);
+        _speedTestService = new SpeedTestService();
 
         HistoryEntries = new ObservableCollection<SpeedTestHistoryEntry>(_historyStorage.Load());
         RefreshChart();
@@ -87,15 +87,23 @@ public partial class MainViewModel : ObservableObject, IDisposable
         ProgressPercent = 0;
         CurrentSpeedText = "0.00 MB/s";
         AverageSpeedText = "0.00 MB/s";
-        StatusMessage = "正在下载测速文件…";
+        StatusMessage = "正在建立 3 条下载连接…";
 
         var progress = new Progress<SpeedTestProgressReport>(report =>
         {
             _dispatcher.Invoke(() =>
             {
+                if (!IsRunning)
+                {
+                    return;
+                }
+
                 ProgressPercent = report.ProgressPercent;
                 CurrentSpeedText = $"{report.InstantMegabytesPerSecond:F2} MB/s";
                 AverageSpeedText = $"{report.AverageMegabytesPerSecond:F2} MB/s";
+                StatusMessage = report.IsWarmup
+                    ? "正在预热连接，这段时间不计入成绩…"
+                    : "正在测量下载速度…";
             });
         });
 
@@ -121,9 +129,9 @@ public partial class MainViewModel : ObservableObject, IDisposable
         {
             case SpeedTestCompletionKind.Succeeded:
                 StatusMessage = "测试完成。";
+                ProgressPercent = 100;
                 AverageSpeedText = $"{result.AverageMegabytesPerSecond:F2} MB/s";
-                LastResultText =
-                    $"平均 {result.AverageMegabytesPerSecond:F2} MB/s · 用时 {result.Duration.TotalSeconds:F1} 秒";
+                LastResultText = FormatResultLine(result);
                 AppendHistory(result);
                 break;
             case SpeedTestCompletionKind.CancelledByUser:
@@ -252,6 +260,13 @@ public partial class MainViewModel : ObservableObject, IDisposable
         ];
     }
 
+    private static string FormatResultLine(SpeedTestResult result)
+    {
+        var mbps = result.AverageMegabytesPerSecond * (1024.0 * 1024.0) * 8.0 / 1_000_000.0;
+        var mbpsText = mbps >= 10 ? $"{mbps:F0}" : $"{mbps:F1}";
+        return $"平均 {result.AverageMegabytesPerSecond:F2} MB/s（约 {mbpsText} Mbps）· 测量 {result.Duration.TotalSeconds:F1} 秒 · {FormatBytes(result.BytesDownloaded)}";
+    }
+
     private static string FormatBytes(long bytes)
     {
         if (bytes < 1024)
@@ -266,7 +281,13 @@ public partial class MainViewModel : ObservableObject, IDisposable
         }
 
         var mb = kb / 1024.0;
-        return $"{mb:F2} MB";
+        if (mb < 1024)
+        {
+            return $"{mb:F1} MB";
+        }
+
+        var gb = mb / 1024.0;
+        return $"{gb:F2} GB";
     }
 
     public void Dispose()

@@ -35,35 +35,8 @@ internal sealed class TempCacheCleanupService
         }
     }
 
-    public void TryDeleteFile(string? path)
-    {
-        if (string.IsNullOrEmpty(path))
-        {
-            return;
-        }
-
-        try
-        {
-            if (File.Exists(path))
-            {
-                File.Delete(path);
-            }
-        }
-        catch
-        {
-            // Ignore delete failures.
-        }
-    }
-
     public static string GetCacheFolderPath()
     {
         return Path.Combine(Path.GetTempPath(), SpeedTestConstants.TempCacheFolderName);
-    }
-
-    public static string CreateTempDownloadPath()
-    {
-        var folder = GetCacheFolderPath();
-        Directory.CreateDirectory(folder);
-        return Path.Combine(folder, $"download_{Guid.NewGuid():N}.tmp");
     }
 }

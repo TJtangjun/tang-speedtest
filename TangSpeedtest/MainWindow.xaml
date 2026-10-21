@@ -163,6 +163,6 @@
                    HorizontalAlignment="Right"
                    FontSize="11"
                    Foreground="#A0AEC0"
-                   Text="测速文件：speedtest.360.cn/16m（3 MB）· 单次最长 120 秒"/>
+                   Text="3 条连接并行 · 预热 2 秒不计成绩 · 测量 10 秒 · speedtest.360.cn/16m"/>
     </Grid>
 </Window>
