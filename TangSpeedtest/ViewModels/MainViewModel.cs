@@ -48,7 +48,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
     private double _progressPercent;
 
     [ObservableProperty]
-    private string _statusMessage = "点击「开始测试」测量当前网络下载速度。";
+    private string _statusMessage = "Click Start Test to measure your download speed.";
 
     [ObservableProperty]
     private string _currentSpeedText = "—";
@@ -87,7 +87,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         ProgressPercent = 0;
         CurrentSpeedText = "0.00 MB/s";
         AverageSpeedText = "0.00 MB/s";
-        StatusMessage = "正在建立 3 条下载连接…";
+        StatusMessage = "Opening 3 download connections…";
 
         var progress = new Progress<SpeedTestProgressReport>(report =>
         {
@@ -102,8 +102,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
                 CurrentSpeedText = $"{report.InstantMegabytesPerSecond:F2} MB/s";
                 AverageSpeedText = $"{report.AverageMegabytesPerSecond:F2} MB/s";
                 StatusMessage = report.IsWarmup
-                    ? "正在预热连接，这段时间不计入成绩…"
-                    : "正在测量下载速度…";
+                    ? "Warming up connections (not counted)…"
+                    : "Measuring download speed…";
             });
         });
 
@@ -117,7 +117,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
             result = new SpeedTestResult
             {
                 Kind = SpeedTestCompletionKind.Failed,
-                UserMessage = "测试失败，请稍后重试。",
+                UserMessage = "Test failed. Please try again later.",
             };
         }
 
@@ -128,28 +128,28 @@ public partial class MainViewModel : ObservableObject, IDisposable
         switch (result.Kind)
         {
             case SpeedTestCompletionKind.Succeeded:
-                StatusMessage = "测试完成。";
+                StatusMessage = "Test complete.";
                 ProgressPercent = 100;
                 AverageSpeedText = $"{result.AverageMegabytesPerSecond:F2} MB/s";
                 LastResultText = FormatResultLine(result);
                 AppendHistory(result);
                 break;
             case SpeedTestCompletionKind.CancelledByUser:
-                StatusMessage = result.UserMessage ?? "已取消测试。";
-                LastResultText = "本次测试已取消，未写入历史记录。";
+                StatusMessage = result.UserMessage ?? "Test cancelled.";
+                LastResultText = "Test cancelled. Result was not saved to history.";
                 ProgressPercent = 0;
                 CurrentSpeedText = "—";
                 AverageSpeedText = "—";
                 break;
             case SpeedTestCompletionKind.TimedOut:
-                StatusMessage = result.UserMessage ?? "测试超时。";
-                LastResultText = $"未在限定时间内完成（已下载 {FormatBytes(result.BytesDownloaded)}）。";
+                StatusMessage = result.UserMessage ?? "Test timed out.";
+                LastResultText = $"Did not finish in time (downloaded {FormatBytes(result.BytesDownloaded)}).";
                 ProgressPercent = 0;
                 break;
             default:
-                StatusMessage = result.UserMessage ?? "测试失败。";
+                StatusMessage = result.UserMessage ?? "Test failed.";
                 LastResultText = string.IsNullOrEmpty(result.UserMessage)
-                    ? "测试失败。"
+                    ? "Test failed."
                     : result.UserMessage;
                 ProgressPercent = 0;
                 break;
@@ -164,7 +164,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         }
 
         _testCts.Cancel();
-        StatusMessage = "正在取消…";
+        StatusMessage = "Cancelling…";
     }
 
     private void AppendHistory(SpeedTestResult result)
@@ -196,8 +196,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
     private void ClearHistory()
     {
         var answer = MessageBox.Show(
-            "确定清除全部测速历史记录？此操作无法撤销。",
-            "清除历史",
+            "Clear all speed test history? This cannot be undone.",
+            "Clear history",
             MessageBoxButton.OKCancel,
             MessageBoxImage.Warning);
         if (answer != MessageBoxResult.OK)
@@ -226,7 +226,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
             new LineSeries<double>
             {
                 Values = values,
-                Name = "平均速度",
+                Name = "Average speed",
                 Fill = null,
                 GeometrySize = 10,
                 LineSmoothness = 0.85,
@@ -241,7 +241,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
             new Axis
             {
                 Labels = labels,
-                Name = "最近测试（从旧到新）",
+                Name = "Recent tests (oldest → newest)",
                 LabelsRotation = 0,
                 TextSize = 12,
             },
@@ -264,7 +264,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
     {
         var mbps = result.AverageMegabytesPerSecond * (1024.0 * 1024.0) * 8.0 / 1_000_000.0;
         var mbpsText = mbps >= 10 ? $"{mbps:F0}" : $"{mbps:F1}";
-        return $"平均 {result.AverageMegabytesPerSecond:F2} MB/s（约 {mbpsText} Mbps）· 测量 {result.Duration.TotalSeconds:F1} 秒 · {FormatBytes(result.BytesDownloaded)}";
+        return $"Avg {result.AverageMegabytesPerSecond:F2} MB/s (~{mbpsText} Mbps) · measured {result.Duration.TotalSeconds:F1}s · {FormatBytes(result.BytesDownloaded)}";
     }
 
     private static string FormatBytes(long bytes)

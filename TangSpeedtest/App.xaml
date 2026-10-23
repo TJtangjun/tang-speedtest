@@ -1,8 +1,221 @@
 ﻿<Application x:Class="TangSpeedtest.App"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:local="clr-namespace:TangSpeedtest"
              StartupUri="MainWindow.xaml">
     <Application.Resources>
+        <!-- Windows 11 palette -->
+        <Color x:Key="Win11.Background">#FFF3F3F3</Color>
+        <Color x:Key="Win11.Card">#FFFFFFFF</Color>
+        <Color x:Key="Win11.Border">#FFE5E5E5</Color>
+        <Color x:Key="Win11.TextPrimary">#FF1A1A1A</Color>
+        <Color x:Key="Win11.TextSecondary">#FF5C5C5C</Color>
+        <Color x:Key="Win11.TextTertiary">#FF8A8A8A</Color>
+        <Color x:Key="Win11.Accent">#FF005FB8</Color>
+        <Color x:Key="Win11.Success">#FF0F7B0F</Color>
+
+        <SolidColorBrush x:Key="Win11.BackgroundBrush" Color="{StaticResource Win11.Background}"/>
+        <SolidColorBrush x:Key="Win11.CardBrush" Color="{StaticResource Win11.Card}"/>
+        <SolidColorBrush x:Key="Win11.BorderBrush" Color="{StaticResource Win11.Border}"/>
+        <SolidColorBrush x:Key="Win11.TextPrimaryBrush" Color="{StaticResource Win11.TextPrimary}"/>
+        <SolidColorBrush x:Key="Win11.TextSecondaryBrush" Color="{StaticResource Win11.TextSecondary}"/>
+        <SolidColorBrush x:Key="Win11.TextTertiaryBrush" Color="{StaticResource Win11.TextTertiary}"/>
+        <SolidColorBrush x:Key="Win11.AccentBrush" Color="{StaticResource Win11.Accent}"/>
+        <SolidColorBrush x:Key="Win11.SuccessBrush" Color="{StaticResource Win11.Success}"/>
+
+        <!-- Card surface -->
+        <Style x:Key="Win11Card" TargetType="Border">
+            <Setter Property="Background" Value="{StaticResource Win11.CardBrush}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource Win11.BorderBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="8"/>
+            <Setter Property="Padding" Value="20"/>
+            <Setter Property="SnapsToDevicePixels" Value="True"/>
+            <Setter Property="Effect">
+                <Setter.Value>
+                    <DropShadowEffect BlurRadius="16"
+                                      ShadowDepth="1"
+                                      Direction="270"
+                                      Color="#000000"
+                                      Opacity="0.06"/>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Primary accent button -->
+        <Style x:Key="Win11PrimaryButton" TargetType="Button">
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="Background" Value="{StaticResource Win11.AccentBrush}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource Win11.AccentBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="FontFamily" Value="Segoe UI Variable Text, Segoe UI"/>
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Padding" Value="20,0"/>
+            <Setter Property="Height" Value="36"/>
+            <Setter Property="MinWidth" Value="120"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="SnapsToDevicePixels" Value="True"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Root"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="4"
+                                Padding="{TemplateBinding Padding}"
+                                SnapsToDevicePixels="True">
+                            <ContentPresenter HorizontalAlignment="Center"
+                                              VerticalAlignment="Center"
+                                              RecognizesAccessKey="True"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Root" Property="Background" Value="#1975C5"/>
+                                <Setter TargetName="Root" Property="BorderBrush" Value="#1975C5"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Root" Property="Background" Value="#004E99"/>
+                                <Setter TargetName="Root" Property="BorderBrush" Value="#004E99"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="Root" Property="Background" Value="#80AFDC"/>
+                                <Setter TargetName="Root" Property="BorderBrush" Value="#80AFDC"/>
+                                <Setter Property="Foreground" Value="#F3F3F3"/>
+                                <Setter Property="Cursor" Value="Arrow"/>
+                            </Trigger>
+                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="Root" Property="BorderBrush" Value="#003E7A"/>
+                                <Setter TargetName="Root" Property="BorderThickness" Value="2"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Secondary / outline button -->
+        <Style x:Key="Win11SecondaryButton" TargetType="Button">
+            <Setter Property="Foreground" Value="{StaticResource Win11.TextPrimaryBrush}"/>
+            <Setter Property="Background" Value="{StaticResource Win11.CardBrush}"/>
+            <Setter Property="BorderBrush" Value="#D1D1D1"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="FontFamily" Value="Segoe UI Variable Text, Segoe UI"/>
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="FontWeight" Value="Normal"/>
+            <Setter Property="Padding" Value="16,0"/>
+            <Setter Property="Height" Value="36"/>
+            <Setter Property="MinWidth" Value="100"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="SnapsToDevicePixels" Value="True"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Root"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="4"
+                                Padding="{TemplateBinding Padding}"
+                                SnapsToDevicePixels="True">
+                            <ContentPresenter HorizontalAlignment="Center"
+                                              VerticalAlignment="Center"
+                                              RecognizesAccessKey="True"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Root" Property="Background" Value="#F0F0F0"/>
+                                <Setter TargetName="Root" Property="BorderBrush" Value="#C4C4C4"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Root" Property="Background" Value="#E8E8E8"/>
+                                <Setter TargetName="Root" Property="BorderBrush" Value="#B8B8B8"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="Root" Property="Background" Value="#F9F9F9"/>
+                                <Setter TargetName="Root" Property="BorderBrush" Value="#E5E5E5"/>
+                                <Setter Property="Foreground" Value="#A0A0A0"/>
+                                <Setter Property="Cursor" Value="Arrow"/>
+                            </Trigger>
+                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="Root" Property="BorderBrush" Value="#005FB8"/>
+                                <Setter TargetName="Root" Property="BorderThickness" Value="2"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Subtle text / tertiary button (e.g. clear history) -->
+        <Style x:Key="Win11SubtleButton" TargetType="Button">
+            <Setter Property="Foreground" Value="{StaticResource Win11.AccentBrush}"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderBrush" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="FontFamily" Value="Segoe UI Variable Text, Segoe UI"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="Padding" Value="12,0"/>
+            <Setter Property="Height" Value="32"/>
+            <Setter Property="MinWidth" Value="88"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="SnapsToDevicePixels" Value="True"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Root"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="4"
+                                Padding="{TemplateBinding Padding}"
+                                SnapsToDevicePixels="True">
+                            <ContentPresenter HorizontalAlignment="Center"
+                                              VerticalAlignment="Center"
+                                              RecognizesAccessKey="True"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Root" Property="Background" Value="#E8F2FB"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Root" Property="Background" Value="#D4E8F7"/>
+                                <Setter Property="Foreground" Value="#004E99"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Foreground" Value="#A0A0A0"/>
+                                <Setter Property="Cursor" Value="Arrow"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- ProgressBar -->
+        <Style x:Key="Win11ProgressBar" TargetType="ProgressBar">
+            <Setter Property="Height" Value="4"/>
+            <Setter Property="Background" Value="#E8E8E8"/>
+            <Setter Property="Foreground" Value="{StaticResource Win11.AccentBrush}"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ProgressBar">
+                        <Grid ClipToBounds="True">
+                            <Border Background="{TemplateBinding Background}"
+                                    CornerRadius="2"/>
+                            <Border x:Name="PART_Track"
+                                    Background="Transparent"
+                                    CornerRadius="2"/>
+                            <Decorator x:Name="PART_Indicator"
+                                       HorizontalAlignment="Left">
+                                <Border Background="{TemplateBinding Foreground}"
+                                        CornerRadius="2"/>
+                            </Decorator>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
     </Application.Resources>
 </Application>

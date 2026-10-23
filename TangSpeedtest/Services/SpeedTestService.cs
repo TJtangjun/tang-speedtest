@@ -94,7 +94,7 @@ internal sealed class SpeedTestService : IDisposable
             if (allWorkers.IsFaulted)
             {
                 var error = allWorkers.Exception?.InnerExceptions.FirstOrDefault();
-                return Failed(snapshot, error == null ? "测试失败，请稍后重试。" : DescribeFailure(error));
+                return Failed(snapshot, error == null ? "Test failed. Please try again later." : DescribeFailure(error));
             }
 
             if (!delayTask.IsCompletedSuccessfully)
@@ -104,7 +104,7 @@ internal sealed class SpeedTestService : IDisposable
                     return Failed(snapshot, DescribeFailure(snapshot.Error));
                 }
 
-                return Failed(snapshot, "下载未完成，可能是网络中断或连接被重置。");
+                return Failed(snapshot, "Download did not finish. The network may have dropped or the connection was reset.");
             }
 
             if (snapshot.MeasuredBytes < SpeedTestConstants.MinimumMeasuredBytes)
@@ -116,12 +116,12 @@ internal sealed class SpeedTestService : IDisposable
 
                 if (snapshot.WarmupBytes + snapshot.MeasuredBytes <= 0)
                 {
-                    return Failed(snapshot, "连接超时，当前网络可能较差或信号较弱。");
+                    return Failed(snapshot, "Connection timed out. The network may be weak or unstable.");
                 }
 
                 return Failed(
                     snapshot,
-                    $"测量时间内下载数据过少（{snapshot.MeasuredBytes / 1024.0:F1} KB），无法得到有效速度。");
+                    $"Too little data downloaded during measurement ({snapshot.MeasuredBytes / 1024.0:F1} KB) to compute a valid speed.");
             }
 
             return new SpeedTestResult
@@ -149,7 +149,7 @@ internal sealed class SpeedTestService : IDisposable
                 snapshot = meter.Freeze(clock.Elapsed);
             }
 
-            return Failed(snapshot, "测试失败，请稍后重试。");
+            return Failed(snapshot, "Test failed. Please try again later.");
         }
         finally
         {
@@ -231,7 +231,7 @@ internal sealed class SpeedTestService : IDisposable
         if (!response.IsSuccessStatusCode)
         {
             throw new HttpRequestException(
-                $"服务器返回 {(int)response.StatusCode}。",
+                $"Server returned {(int)response.StatusCode}.",
                 null,
                 response.StatusCode);
         }
@@ -251,7 +251,7 @@ internal sealed class SpeedTestService : IDisposable
             {
                 if (!gotBytes)
                 {
-                    throw new IOException("响应没有数据。");
+                    throw new IOException("Empty response body.");
                 }
 
                 return true;
@@ -347,7 +347,7 @@ internal sealed class SpeedTestService : IDisposable
             BytesDownloaded = snapshot.MeasuredBytes,
             Duration = snapshot.MeasureElapsed,
             AverageMegabytesPerSecond = ToMegabytesPerSecond(snapshot.MeasuredBytes, snapshot.MeasureElapsed),
-            UserMessage = "已取消测试。",
+            UserMessage = "Test cancelled.",
         };
     }
 
@@ -388,17 +388,17 @@ internal sealed class SpeedTestService : IDisposable
 
         if (ex is IOException)
         {
-            return "网络读写失败，请检查连接后重试。";
+            return "Network I/O failed. Check your connection and try again.";
         }
 
-        return "测试失败，请稍后重试。";
+        return "Test failed. Please try again later.";
     }
 
     private static string MapNetworkError(HttpRequestException ex)
     {
         if (ex.StatusCode == HttpStatusCode.ServiceUnavailable)
         {
-            return "服务暂时不可用，请稍后重试。";
+            return "Service temporarily unavailable. Please try again later.";
         }
 
         var socket = FindSocketException(ex);
@@ -409,29 +409,29 @@ internal sealed class SpeedTestService : IDisposable
 
         if (ex.StatusCode is HttpStatusCode status)
         {
-            return $"服务器返回 {(int)status}。";
+            return $"Server returned {(int)status}.";
         }
 
         if (ex.Message.Contains("Name or service not known", StringComparison.OrdinalIgnoreCase)
             || ex.Message.Contains("No such host", StringComparison.OrdinalIgnoreCase)
             || ex.Message.Contains("不知道这样的主机", StringComparison.OrdinalIgnoreCase))
         {
-            return "DNS 解析失败，请检查网络或 DNS 设置。";
+            return "DNS lookup failed. Check your network or DNS settings.";
         }
 
-        return "网络请求失败，请检查是否已连接互联网。";
+        return "Network request failed. Check that you are connected to the internet.";
     }
 
     private static string MapSocketError(SocketException ex)
     {
         return ex.SocketErrorCode switch
         {
-            SocketError.HostNotFound or SocketError.NoData => "DNS 解析失败，请检查网络或 DNS 设置。",
-            SocketError.NetworkUnreachable or SocketError.HostUnreachable => "网络不可达，请检查网络连接。",
-            SocketError.TimedOut => "连接超时，当前网络可能较差或信号较弱。",
-            SocketError.ConnectionReset or SocketError.ConnectionAborted => "连接被中断，可能正在切换 Wi-Fi 或网络不稳定。",
-            SocketError.NotConnected or SocketError.Shutdown => "网络已断开，请连接后重试。",
-            _ => "网络异常，请检查连接后重试。",
+            SocketError.HostNotFound or SocketError.NoData => "DNS lookup failed. Check your network or DNS settings.",
+            SocketError.NetworkUnreachable or SocketError.HostUnreachable => "Network unreachable. Check your connection.",
+            SocketError.TimedOut => "Connection timed out. The network may be weak or unstable.",
+            SocketError.ConnectionReset or SocketError.ConnectionAborted => "Connection interrupted. You may be switching Wi-Fi or the network is unstable.",
+            SocketError.NotConnected or SocketError.Shutdown => "Network disconnected. Reconnect and try again.",
+            _ => "Network error. Check your connection and try again.",
         };
     }
 

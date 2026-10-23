@@ -5,15 +5,19 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:lvc="clr-namespace:LiveChartsCore.SkiaSharpView.WPF;assembly=LiveChartsCore.SkiaSharpView.WPF"
         mc:Ignorable="d"
-        Title="网速测试"
+        Title="Speed Test"
         Icon="pack://application:,,,/Assets/app.ico"
-        Height="620"
-        Width="720"
-        MinHeight="520"
-        MinWidth="560"
+        Height="640"
+        Width="740"
+        MinHeight="540"
+        MinWidth="580"
         WindowStartupLocation="CenterScreen"
-        Background="#F4F6F9">
-    <Grid Margin="24">
+        FontFamily="Segoe UI Variable Text, Segoe UI"
+        Background="{StaticResource Win11.BackgroundBrush}"
+        TextOptions.TextFormattingMode="Display"
+        UseLayoutRounding="True"
+        SnapsToDevicePixels="True">
+    <Grid Margin="28">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
@@ -23,26 +27,25 @@
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
+        <!-- Title -->
         <TextBlock Grid.Row="0"
-                   Text="下载测速"
+                   Text="Download Speed Test"
                    FontSize="28"
                    FontWeight="SemiBold"
-                   Foreground="#1A1A2E"/>
+                   FontFamily="Segoe UI Variable Display, Segoe UI"
+                   Foreground="{StaticResource Win11.TextPrimaryBrush}"/>
 
         <TextBlock Grid.Row="1"
-                   Margin="0,8,0,0"
+                   Margin="0,6,0,0"
                    Text="{Binding StatusMessage}"
                    TextWrapping="Wrap"
-                   Foreground="#4A5568"
-                   FontSize="14"/>
+                   Foreground="{StaticResource Win11.TextSecondaryBrush}"
+                   FontSize="13"/>
 
+        <!-- Metrics card -->
         <Border Grid.Row="2"
                 Margin="0,20,0,0"
-                Padding="20"
-                Background="White"
-                CornerRadius="12"
-                BorderBrush="#E2E8F0"
-                BorderThickness="1">
+                Style="{StaticResource Win11Card}">
             <Grid>
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
@@ -55,49 +58,56 @@
                 </Grid.ColumnDefinitions>
 
                 <StackPanel Grid.Row="0" Grid.Column="0">
-                    <TextBlock Text="当前速度" Foreground="#718096" FontSize="12"/>
-                    <TextBlock Text="{Binding CurrentSpeedText}"
-                               FontSize="26"
-                               FontWeight="Bold"
-                               Foreground="#2B6CB0"/>
+                    <TextBlock Text="Current speed"
+                               Foreground="{StaticResource Win11.TextTertiaryBrush}"
+                               FontSize="12"/>
+                    <TextBlock Margin="0,4,0,0"
+                               Text="{Binding CurrentSpeedText}"
+                               FontSize="28"
+                               FontWeight="SemiBold"
+                               FontFamily="Segoe UI Variable Display, Segoe UI"
+                               Foreground="{StaticResource Win11.AccentBrush}"/>
                 </StackPanel>
                 <StackPanel Grid.Row="0" Grid.Column="1">
-                    <TextBlock Text="平均速度" Foreground="#718096" FontSize="12"/>
-                    <TextBlock Text="{Binding AverageSpeedText}"
-                               FontSize="26"
-                               FontWeight="Bold"
-                               Foreground="#2F855A"/>
+                    <TextBlock Text="Average speed"
+                               Foreground="{StaticResource Win11.TextTertiaryBrush}"
+                               FontSize="12"/>
+                    <TextBlock Margin="0,4,0,0"
+                               Text="{Binding AverageSpeedText}"
+                               FontSize="28"
+                               FontWeight="SemiBold"
+                               FontFamily="Segoe UI Variable Display, Segoe UI"
+                               Foreground="{StaticResource Win11.SuccessBrush}"/>
                 </StackPanel>
 
                 <ProgressBar Grid.Row="1"
                              Grid.ColumnSpan="2"
-                             Margin="0,16,0,0"
-                             Height="10"
+                             Margin="0,20,0,0"
                              Minimum="0"
                              Maximum="100"
-                             Value="{Binding ProgressPercent}"/>
+                             Value="{Binding ProgressPercent}"
+                             Style="{StaticResource Win11ProgressBar}"/>
 
                 <TextBlock Grid.Row="2"
                            Grid.ColumnSpan="2"
-                           Margin="0,12,0,0"
+                           Margin="0,14,0,0"
                            Text="{Binding LastResultText}"
                            TextWrapping="Wrap"
-                           Foreground="#2D3748"/>
+                           FontSize="13"
+                           Foreground="{StaticResource Win11.TextSecondaryBrush}"/>
             </Grid>
         </Border>
 
+        <!-- Actions -->
         <StackPanel Grid.Row="3"
                     Margin="0,20,0,0"
                     Orientation="Horizontal"
                     HorizontalAlignment="Left">
-            <Button Content="开始测试"
-                    Width="120"
-                    Height="40"
-                    Margin="0,0,12,0"
-                    FontSize="14"
+            <Button Content="Start Test"
+                    Margin="0,0,10,0"
                     Command="{Binding StartTestCommand}">
                 <Button.Style>
-                    <Style TargetType="Button">
+                    <Style TargetType="Button" BasedOn="{StaticResource Win11PrimaryButton}">
                         <Setter Property="IsEnabled" Value="True"/>
                         <Style.Triggers>
                             <DataTrigger Binding="{Binding IsRunning}" Value="True">
@@ -107,13 +117,10 @@
                     </Style>
                 </Button.Style>
             </Button>
-            <Button Content="取消"
-                    Width="100"
-                    Height="40"
-                    FontSize="14"
+            <Button Content="Cancel"
                     Command="{Binding CancelTestCommand}">
                 <Button.Style>
-                    <Style TargetType="Button">
+                    <Style TargetType="Button" BasedOn="{StaticResource Win11SecondaryButton}">
                         <Setter Property="IsEnabled" Value="False"/>
                         <Style.Triggers>
                             <DataTrigger Binding="{Binding IsRunning}" Value="True">
@@ -125,29 +132,25 @@
             </Button>
         </StackPanel>
 
+        <!-- Chart card -->
         <Border Grid.Row="4"
                 Margin="0,20,0,0"
-                Padding="12"
-                Background="White"
-                CornerRadius="12"
-                BorderBrush="#E2E8F0"
-                BorderThickness="1">
+                Style="{StaticResource Win11Card}"
+                Padding="16">
             <Grid>
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="*"/>
                 </Grid.RowDefinitions>
-                <DockPanel Grid.Row="0" LastChildFill="False" Margin="4,4,4,8">
+                <DockPanel Grid.Row="0" LastChildFill="False" Margin="4,0,4,10">
                     <Button DockPanel.Dock="Right"
-                            Content="清除历史"
-                            MinWidth="88"
-                            Height="32"
-                            Padding="12,0"
-                            FontSize="13"
+                            Content="Clear history"
+                            Style="{StaticResource Win11SubtleButton}"
                             Command="{Binding ClearHistoryCommand}"/>
-                    <TextBlock Text="最近 10 次平均速度（MB/s）"
+                    <TextBlock Text="Last 10 average speeds (MB/s)"
                                FontWeight="SemiBold"
-                               Foreground="#2D3748"
+                               FontSize="14"
+                               Foreground="{StaticResource Win11.TextPrimaryBrush}"
                                VerticalAlignment="Center"/>
                 </DockPanel>
                 <lvc:CartesianChart Grid.Row="1"
@@ -160,10 +163,10 @@
         </Border>
 
         <TextBlock Grid.Row="5"
-                   Margin="0,12,0,0"
+                   Margin="0,14,0,0"
                    HorizontalAlignment="Right"
                    FontSize="11"
-                   Foreground="#A0AEC0"
-                   Text="3 条连接并行 · 预热 2 秒不计成绩 · 测量 10 秒 · speedtest.360.cn/16m"/>
+                   Foreground="{StaticResource Win11.TextTertiaryBrush}"
+                   Text="3 parallel connections · 2s warmup excluded · 10s measure · speedtest.360.cn/16m"/>
     </Grid>
 </Window>
